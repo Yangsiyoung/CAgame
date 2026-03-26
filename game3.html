@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>꼴찌 탈출 윷놀이</title>
+    <style>
+        :root { --primary: #003399; --accent: #e74c3c; --bg: #f8f9fa; --cell-size: 60px; }
+        body { font-family: 'Pretendard', sans-serif; background: #e9ecef; display: flex; flex-direction: column; align-items: center; padding: 20px; margin: 0; }
+        #setup { background: white; padding: 25px; border-radius: 15px; box-shadow: 0 5px 15px rgba(0,0,0,0.1); text-align: center; margin-bottom: 20px; width: 400px; }
+        .btn { padding: 10px 20px; border: none; border-radius: 5px; background: var(--primary); color: white; font-weight: bold; cursor: pointer; }
+        #game-container { display: none; gap: 30px; animation: fadeIn 0.5s; }
+        #board-frame { background: white; padding: 30px; border: 4px solid var(--primary); border-radius: 10px; position: relative; }
+        #board { display: grid; grid-template-columns: repeat(6, var(--cell-size)); grid-template-rows: repeat(6, var(--cell-size)); gap: 12px; position: relative; }
+        .cell { position: relative; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
+        .circle { width: 48px; height: 48px; border: 3px solid var(--primary); border-radius: 50%; background: white; display: flex; align-items: center; justify-content: center; z-index: 2; }
+        .circle-inner { width: 28px; height: 28px; background: var(--primary); border-radius: 50%; display: none; }
+        .cell.active .circle-inner { display: block; }
+        .cell.corner .circle { width: 56px; height: 56px; border-width: 4px; }
+        .cell.selectable .circle { border-color: var(--accent); cursor: pointer; animation: pulse 0.8s infinite alternate; }
+        @keyframes pulse { from { transform: scale(1); } to { transform: scale(1.15); } }
+        .token { width: 22px; height: 22px; border-radius: 50%; position: absolute; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3); z-index: 10; transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+        #panel { background: white; padding: 30px; border-radius: 20px; width: 280px; text-align: center; display: flex; flex-direction: column; }
+        #dice-num { font-size: 4.5rem; font-weight: 900; color: var(--primary); margin: 20px 0; }
+        .log { text-align: left; font-size: 0.85rem; color: #777; height: 100px; overflow-y: auto; border-top: 1px solid #eee; margin-top: 15px; padding-top: 10px; }
+        #ranking { margin-top: 15px; padding: 10px; background: #f1f3f5; border-radius: 10px; font-size: 0.9rem; text-align: left; }
+        #modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 1000; justify-content: center; align-items: center; }
+        .modal-content { background: white; padding: 40px; border-radius: 25px; text-align: center; width: 320px; }
+    </style>
+</head>
+<body>
+
+<div id="setup">
+    <h2 style="color:var(--primary); margin-top:0;">🏆 꼴찌 찾기 윷놀이</h2>
+    <input type="text" id="p-name" placeholder="이름 입력" style="padding:10px; width:150px;">
+    <button class="btn" onclick="addPlayer()">추가</button>
+    <div id="p-list" style="margin-top:15px; font-weight:bold; color:#555;"></div>
+    <button class="btn" style="background:#333; width:100%; margin-top:15px;" onclick="initGame()">게임 시작 (최소 2명)</button>
+</div>
+
+<div id="game-container">
+    <div id="board-frame">
+        <div id="board"></div>
+    </div>
+    <div id="panel">
+        <div>
+            <div style="color:#888; font-weight:bold;">현재 차례</div>
+            <div id="now-p" style="font-size:1.6rem; font-weight:900; margin-top:5px;">-</div>
+        </div>
+        <div id="dice-num">?</div>
+        <button id="roll-btn" class="btn" style="padding:18px; font-size:1.2rem;" onclick="roll()">주사위 던지기</button>
+        <div id="ranking"><b>🏅 순위:</b> <span id="rank-list">없음</span></div>
+        <div id="log" class="log"></div>
+    </div>
+</div>
+
+<div id="modal">
+    <div class="modal-content">
+        <div style="color:#aaa; font-weight:bold;">미션 발생!</div>
+        <div id="mission-display" style="font-size:2.5rem; font-weight:900; color:var(--accent); margin:25px 0;">-</div>
+        <div style="display:flex; gap:12px;">
+            <button class="btn" style="background:#2ecc71; flex:1; padding:15px;" onclick="finishTurn(true)">통과</button>
+            <button class="btn" style="background:var(--accent); flex:1; padding:15px;" onclick="finishTurn(false)">실패</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    const missions = ["인물퀴즈", "노래퀴즈", "수도퀴즈", "속담퀴즈", "이어말하기"];
+    const colors = ['#003399', '#E74C3C', '#2ECC71', '#F39C12', '#9B59B6', '#1ABC9C', '#34495E', '#D35400', '#273C75', '#000000'];
+
+    const pathData = {
+        "5,5": ["5,4"], "5,4": ["5,3"], "5,3": ["5,2"], "5,2": ["5,1"], "5,1": ["5,0"],
+        "5,0": ["4,0", "4,1"], "4,0": ["3,0"], "3,0": ["2,0"], "2,0": ["1,0"], "1,0": ["0,0"],
+        "0,0": ["0,1", "1,1"], "0,1": ["0,2"], "0,2": ["0,3"], "0,3": ["0,4"], "0,4": ["0,5"],
+        "0,5": ["1,5"], "1,5": ["2,5"], "2,5": ["3,5"], "3,5": ["4,5"], "4,5": ["5,5"],
+        "4,1": ["3,2"], "3,2": ["c"], "c": ["2,3", "1,1"], "2,3": ["1,4"], "1,4": ["0,5"],
+        "1,1": ["2,2"], "2,2": ["c"], "c": ["3,3", "4,1"], "3,3": ["4,4"], "4,4": ["5,5"]
+    };
+
+    let players = [], winners = [], turn = 0, moving = false, steps = 0, choices = [];
+
+    function addPlayer() {
+        const name = document.getElementById('p-name').value.trim();
+        if(!name || players.length >= 10) return;
+        players.push({name, pos:"5,5", last:"5,5", color:colors[players.length], finished: false});
+        document.getElementById('p-list').innerHTML += `<span style="color:${colors[players.length-1]}">● ${name} </span>`;
+        document.getElementById('p-name').value = "";
+    }
+
+    function initGame() {
+        if(players.length < 2) { alert("최소 2명의 플레이어가 필요합니다."); return; }
+        document.getElementById('setup').style.display = "none";
+        document.getElementById('game-container').style.display = "flex";
+        const board = document.getElementById('board');
+        for(let r=0; r<6; r++) {
+            for(let c=0; c<6; c++) {
+                const id = `${r},${c}`;
+                createCell(id, r, c);
+            }
+        }
+        const center = createCell('c', 2.5, 2.5);
+        center.style.position = "absolute"; center.style.left = "50%"; center.style.top = "50%"; center.style.transform = "translate(-50%, -50%)";
+        updateUI(); render();
+    }
+
+    function createCell(id, r, c) {
+        const el = document.createElement('div');
+        el.className = 'cell'; el.id = `cell-${id}`;
+        if (pathData[id] || Object.values(pathData).flat().includes(id)) {
+            el.classList.add('active');
+            if (["5,5","5,0","0,0","0,5","c"].includes(id)) el.classList.add('corner');
+            el.innerHTML = `<div class="circle"><div class="circle-inner"></div></div>`;
+            el.onclick = () => handleSelect(id);
+            document.getElementById('board').appendChild(el);
+        } else { document.getElementById('board').appendChild(el); }
+        return el;
+    }
+
+    function roll() {
+        if(moving) return;
+        moving = true;
+        document.getElementById('roll-btn').disabled = true;
+        let val = 0, cnt = 0;
+        const anim = setInterval(() => {
+            val = Math.floor(Math.random()*5)+1;
+            document.getElementById('dice-num').innerText = val;
+            if(++cnt > 12) {
+                clearInterval(anim);
+                players[turn].last = players[turn].pos;
+                steps = val;
+                doMove();
+            }
+        }, 50);
+    }
+
+    function doMove() {
+        const p = players[turn];
+        if(steps <= 0) {
+            moving = false;
+            if(p.pos === "5,5" && p.last !== "5,5") finishPlayer(p);
+            else setTimeout(showMission, 400);
+            return;
+        }
+        const nexts = pathData[p.pos];
+        if(!nexts) { finishPlayer(p); return; }
+
+        if(nexts.length === 1) {
+            p.pos = nexts[0]; steps--;
+            if(p.pos === "5,5") { render(); setTimeout(() => finishPlayer(p), 300); return; }
+            render(); setTimeout(doMove, 250);
+        } else {
+            choices = nexts;
+            choices.forEach(id => document.getElementById(`cell-${id}`).classList.add('selectable'));
+        }
+    }
+
+    function handleSelect(id) {
+        if(!choices.includes(id)) return;
+        choices.forEach(cid => document.getElementById(`cell-${cid}`).classList.remove('selectable'));
+        choices = []; players[turn].pos = id; steps--;
+        render(); setTimeout(doMove, 100);
+    }
+
+    function finishPlayer(p) {
+        if(p.finished) return;
+        p.finished = true;
+        winners.push(p.name);
+        log(`🎊 ${p.name} 완주! (${winners.length}등)`);
+        document.getElementById('rank-list').innerText = winners.join(", ");
+        render();
+
+        // 남은 사람 확인
+        const remain = players.filter(pl => !pl.finished);
+        if(remain.length === 1) {
+            alert(`게임 종료! 최종 꼴찌는 [${remain[0].name}]님 입니다!`);
+            location.reload();
+        } else {
+            moving = false;
+            steps = 0;
+            nextTurn();
+        }
+    }
+
+    function showMission() {
+        document.getElementById('mission-display').innerText = missions[Math.floor(Math.random()*missions.length)];
+        document.getElementById('modal').style.display = "flex";
+    }
+
+    function finishTurn(win) {
+        document.getElementById('modal').style.display = "none";
+        if(!win) { players[turn].pos = players[turn].last; log(`${players[turn].name} 미션 실패!`); render(); }
+        nextTurn();
+    }
+
+    function nextTurn() {
+        moving = false;
+        document.getElementById('roll-btn').disabled = false;
+        // 완주하지 않은 다음 사람 찾기
+        do {
+            turn = (turn + 1) % players.length;
+        } while (players[turn].finished);
+        updateUI();
+    }
+
+    function render() {
+        document.querySelectorAll('.token').forEach(t => t.remove());
+        players.forEach((p, idx) => {
+            if(p.finished) return; // 완주한 사람은 보드에서 제거
+            const cell = document.getElementById(`cell-${p.pos}`);
+            const t = document.createElement('div');
+            t.className = 'token';
+            t.style.backgroundColor = p.color;
+            t.style.left = `calc(50% - 11px + ${idx*3}px)`;
+            t.style.top = `calc(50% - 11px + ${idx*3}px)`;
+            cell.appendChild(t);
+        });
+    }
+
+    function updateUI() {
+        const p = players[turn];
+        document.getElementById('now-p').innerText = p.name;
+        document.getElementById('now-p').style.color = p.color;
+        document.getElementById('dice-num').innerText = "?";
+    }
+
+    function log(m) {
+        const l = document.getElementById('log');
+        l.innerHTML = `<div>• ${m}</div>` + l.innerHTML;
+    }
+</script>
+</body>
+</html>
